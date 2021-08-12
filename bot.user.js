@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright (c) 2016 Ermiya Eskandary & Théophile Cailliau and other contributors
 This Source Code Form is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -59,6 +59,31 @@ window.log = function() {
         console.log.apply(console, arguments);
     }
 };
+
+// Add standard deviation function to array prototype
+Array.prototype.stats = function() {
+    var i;
+    var j;
+    var total = 0;
+    var mean = 0;
+    var diffSqredArr = [];
+    for (i = 0; i < this.length; i += 1) {
+        total += this[i];
+    }
+    mean = total / this.length;
+    for (j = 0; j < this.length; j += 1) {
+        diffSqredArr.push(Math.pow((this[j] - mean), 2));
+    }
+    return {
+        mean: mean,
+        stdev: (Math.sqrt(diffSqredArr.reduce(
+            function(firstEl, nextEl) { return firstEl + nextEl; }
+            ) / this.length)),
+        min: Math.min.apply(null, this),
+        max: Math.max.apply(null, this)
+    };
+};
+
 
 var canvasUtil = window.canvasUtil = (function() {
     return {
@@ -348,6 +373,42 @@ var canvasUtil = window.canvasUtil = (function() {
     };
 })();
 
+var logUtil = window.logUtil = (function() {
+    return {
+        functionData: [],
+        startTimes: [],
+
+        startTime: function(functionName) {
+            logUtil.startTimes[functionName] = performance.now();
+        },
+
+        endTime: function(functionName) {
+            // No sense recording end time if start wasn't called.
+            if (!(functionName in logUtil.startTimes)) {
+                window.log('logUtil.endTime called for "' + functionName + '" without start');
+                return;
+            }
+            var duration = performance.now() - logUtil.startTimes[functionName];
+
+            if (!(functionName in logUtil.functionData)) {
+                logUtil.functionData[functionName] = [];
+            }
+            if (logUtil.functionData[functionName].push(duration) > window.bot.opt.logFrames) {
+                logUtil.functionData[functionName].shift();
+            }
+        },
+
+        functionStats: function(functionName) {
+            if (functionName in logUtil.functionData) {
+                return logUtil.functionData[functionName].stats();
+            } else {
+                window.log('No function data for ' + functionName);
+                return false;
+            }
+        }
+    };
+})();
+
 var bot = window.bot = (function() {
     return {
         isBotRunning: false,
@@ -377,7 +438,8 @@ var bot = window.bot = (function() {
             rearHeadAngle: 3 * Math.PI / 4,
             rearHeadDir: Math.PI / 2,
             radiusApproachSize: 5,
-            radiusAvoidSize: 25
+            radiusAvoidSize: 25,
+            logFrames: 200
         },
         MID_X: 0,
         MID_Y: 0,
@@ -835,7 +897,8 @@ var bot = window.bot = (function() {
                 window.snake.xx - (bot.sectorBoxSide / 2),
                 window.snake.yy - (bot.sectorBoxSide / 2),
                 bot.sectorBoxSide, bot.sectorBoxSide);
-            // if (window.visualDebugging) canvasUtil.drawRect(bot.sectorBox, '#c0c0c0', true, 0.1);
+            // if (window.visualDebugging)
+            // canvasUtil.drawRect(bot.sectorBox, '#c0c0c0', true, 0.1);
 
             bot.cos = Math.cos(window.snake.ang);
             bot.sin = Math.sin(window.snake.ang);
@@ -890,7 +953,9 @@ var bot = window.bot = (function() {
         foodTimer: function() {
             if (window.playing && bot.lookForFood &&
                 window.snake !== null && window.snake.alive_amt === 1) {
+                logUtil.startTime('cfg');
                 bot.computeFoodGoal();
+                logUtil.endTime('cfg');
                 window.goalCoordinates = bot.currentFood;
                 canvasUtil.setMouseCoordinates(canvasUtil.mapToMouse(window.goalCoordinates));
             }
@@ -1230,10 +1295,14 @@ var userInterface = window.userInterface = (function() {
             median = Math.round((bot.scores[Math.floor((bot.scores.length - 1) / 2)] +
                      bot.scores[Math.ceil((bot.scores.length - 1) / 2)]) / 2);
 
+            var stats = bot.scores.stats();
+
+            avg = Math.round(stats.mean);
+            stdev = Math.round(stats.stdev);
+
             oContent.push('games played: ' + bot.scores.length);
-            oContent.push('a: ' + Math.round(
-                bot.scores.reduce(function(a, b) { return a + b; }) / (bot.scores.length)) +
-                ' m: ' + median);
+            oContent.push('avg: ' + avg + ' stdev: ' + stdev + '<br/>' +
+                'med: ' + median);
 
             for (var i = 0; i < bot.scores.length && i < 10; i++) {
                 oContent.push(i + 1 + '. ' + bot.scores[i]);
@@ -1292,6 +1361,15 @@ var userInterface = window.userInterface = (function() {
                     window.bso.ip + ':' + window.bso.po) {
                     userInterface.overlays.serverOverlay.innerHTML =
                         window.bso.ip + ':' + window.bso.po;
+                }
+
+                if (window.logUtil !== undefined) {
+                    var cfg = window.logUtil.functionStats('cfg');
+
+                    if (cfg) {
+                        oContent.push('cfg: μ' + Math.round(cfg.mean) + ' ∧' +
+                            Math.round(cfg.min) + '  ∨' + Math.round(cfg.max));
+                    }
                 }
             }
 
